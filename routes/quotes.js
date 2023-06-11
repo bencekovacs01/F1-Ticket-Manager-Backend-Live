@@ -7,8 +7,8 @@ require("dotenv").config();
 
 const serviceAccount = {
   type: "service_account",
-  project_id: "ticket-manager-46c6d",
-  private_key_id: "c0abd7c2af53c4bbb7e01f4f2a75b1632569b266",
+  project_id: process.env.FIREBASE_PROJECT_ID,
+  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
   private_key: process.env.FIREBASE_ADMIN_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
   client_email: process.env.FIREBASE_ADMIN_KEY_CLIENT_EMAIL,
   client_id: "112449764427419483134",

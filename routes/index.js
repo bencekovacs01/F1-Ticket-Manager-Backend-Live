@@ -68,7 +68,7 @@ router.post("/encrypt", async function (req, res, next) {
 // POST decrypt
 router.post("/decrypt", async function (req, res, next) {
   try {
-    const { userId, encryptedKey, encryptedData } = req.body;
+    const { userId, circuitId, uid, pin } = req.body;
 
     const userRef = admin.firestore().collection("users").doc(userId);
     const doc = await userRef.get();
@@ -78,14 +78,38 @@ router.post("/decrypt", async function (req, res, next) {
       const rsaKey = new NodeRSA();
       rsaKey.importKey(privateKey, "private");
 
-      const decryptedKey = rsaKey.decrypt(encryptedKey, "utf8");
+      const ordersRef = admin
+        .firestore()
+        .collection("orders")
+        .doc(circuitId)
+        .collection("orders");
 
-      const decryptedData = CryptoJS.AES.decrypt(
-        encryptedData,
-        decryptedKey
-      ).toString(CryptoJS.enc.Utf8);
+      try {
+        const snapshot = await ordersRef.get();
+        snapshot.forEach((doc) => {
+          const data = doc.data();
 
-      res.status(200).json({ decryptedData });
+          if (data.uid == uid) {
+            const decryptedKey = rsaKey.decrypt(data?.encryptedKey, "utf8");
+            const decryptedData = CryptoJS.AES.decrypt(
+              data?.encryptedData,
+              decryptedKey
+            ).toString(CryptoJS.enc.Utf8);
+
+            const decyptedPin = decryptedData.substring(
+              decryptedData.length - 6
+            );
+
+            if (decyptedPin === pin) {
+              res.status(200).json({ result: "success" });
+            } else {
+              res.status(404).json({ result: "failed" });
+            }
+          }
+        });
+      } catch (error) {
+        res.status(500).json({ result: "Error checking order" });
+      }
     } else {
       res.status(404).json({ error: "User not found" });
     }
