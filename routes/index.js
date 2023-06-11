@@ -86,10 +86,11 @@ router.post("/decrypt", async function (req, res, next) {
 
       try {
         const snapshot = await ordersRef.get();
+        let result = 0;
         snapshot.forEach((doc) => {
           const data = doc.data();
 
-          if (data.uid == uid) {
+          if (data?.uid == uid) {
             const decryptedKey = rsaKey.decrypt(data?.encryptedKey, "utf8");
             const decryptedData = CryptoJS.AES.decrypt(
               data?.encryptedData,
@@ -101,12 +102,16 @@ router.post("/decrypt", async function (req, res, next) {
             );
 
             if (decyptedPin === pin) {
+              result = 1;
               res.status(200).json({ result: "success" });
             } else {
-              res.status(404).json({ result: "failed" });
+              result = -1;
             }
           }
         });
+        if (result == 0 || result == -1) {
+          res.status(404).json({ result: "failed" });
+        }
       } catch (error) {
         res.status(500).json({ result: "Error checking order" });
       }
