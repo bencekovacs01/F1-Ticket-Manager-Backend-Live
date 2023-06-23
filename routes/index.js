@@ -19,17 +19,31 @@ router.post("/generateKeyPair", async function (req, res, next) {
     const publicKey = key.exportKey("public");
     const privateKey = key.exportKey("private");
 
-    const userRef = admin.firestore().collection("users").doc(userId);
+    const docRef = admin.firestore().collection("users").doc(userId);
 
-    await userRef
-      .update({ publicKey, privateKey })
-      .then(() => {
-        res.status(204).json();
-      })
-      .catch((error) => {
-        console.error("Error saving public key:", error);
-        res.status(500).json({ error: "Error saving public key" });
-      });
+    try {
+      const doc = await docRef.get();
+      let orders = (await doc.data()?.orders) || [];
+      let lastOrder = orders[orders.length - 1];
+
+      if (lastOrder) {
+        lastOrder.publicKey = publicKey;
+        lastOrder.privateKey = privateKey;
+      }
+
+      await docRef
+        .update({ orders: orders })
+        .then(() => {
+          res.status(204).json();
+        })
+        .catch((error) => {
+          console.error("Error saving public key:", error);
+          res.status(500).json({ error: "Error saving public key" });
+        });
+    } catch (error) {
+      console.error("Error updating orders: ", error);
+      return -1;
+    }
   } catch (err) {
     console.error("Error while generating key pair:", err.message);
     res.status(err.statusCode || 500).json({ message: err.message });
@@ -44,8 +58,10 @@ router.post("/encrypt", async function (req, res, next) {
     const userRef = admin.firestore().collection("users").doc(userId);
 
     const doc = await userRef.get();
+    let orders = (await doc.data()?.orders) || [];
+    let lastOrder = orders[orders.length - 1];
     if (doc.exists) {
-      const publicKey = doc.data().publicKey;
+      const publicKey = lastOrder?.publicKey;
       const aesKey = CryptoJS.lib.WordArray.random(16).toString(); // 128-bit key size
       const encryptedData = CryptoJS.AES.encrypt(data, aesKey).toString();
 
@@ -72,17 +88,23 @@ router.post("/decrypt", async function (req, res, next) {
 
     const userRef = admin.firestore().collection("users").doc(userId);
     const doc = await userRef.get();
+    let privateKey = null;
     if (doc.exists) {
-      const privateKey = doc.data().privateKey;
-
-      const rsaKey = new NodeRSA();
-      rsaKey.importKey(privateKey, "private");
-
       const ordersRef = admin
         .firestore()
         .collection("orders")
         .doc(circuitId)
         .collection("orders");
+
+      const orders = (await doc.data()?.orders) || [];
+      orders.forEach((order) => {
+        order?.cartItems.forEach((item) => {
+          if (item?.uid == uid) {
+            privateKey = order?.privateKey;
+            return;
+          }
+        });
+      });
 
       try {
         const snapshot = await ordersRef.get();
@@ -91,7 +113,10 @@ router.post("/decrypt", async function (req, res, next) {
           const data = doc.data();
 
           if (data?.uid == uid) {
+            const rsaKey = new NodeRSA();
+            rsaKey.importKey(privateKey, "private");
             const decryptedKey = rsaKey.decrypt(data?.encryptedKey, "utf8");
+
             const decryptedData = CryptoJS.AES.decrypt(
               data?.encryptedData,
               decryptedKey
@@ -113,6 +138,7 @@ router.post("/decrypt", async function (req, res, next) {
           res.status(404).json({ result: "failed" });
         }
       } catch (error) {
+        console.error("Error decrypting the key:", error);
         res.status(500).json({ result: "Error checking order" });
       }
     } else {
