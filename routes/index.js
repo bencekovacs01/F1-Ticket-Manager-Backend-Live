@@ -81,6 +81,57 @@ router.post("/encrypt", async function (req, res, next) {
   }
 });
 
+// POST change-pin
+router.post("/change-pin", async function (req, res, next) {
+  try {
+    const { circuitId, data, userId, uid } = req.body;
+
+    const userRef = admin.firestore().collection("users").doc(userId);
+
+    const doc = await userRef.get();
+    let orders = (await doc.data()?.orders) || [];
+    let lastOrder = orders[orders.length - 1];
+    if (doc.exists) {
+      const publicKey = lastOrder?.publicKey;
+      const aesKey = CryptoJS.lib.WordArray.random(16).toString(); // 128-bit key size
+      const encryptedData = CryptoJS.AES.encrypt(data, aesKey).toString();
+
+      const rsaKey = new NodeRSA();
+      rsaKey.importKey(publicKey, "public");
+      const encryptedKey = rsaKey.encrypt(aesKey.toString(), "base64");
+
+      const ordersRef = admin
+        .firestore()
+        .collection("orders")
+        .doc(circuitId)
+        .collection("orders");
+
+      const querySnapshot = await ordersRef.where("uid", "==", uid).get();
+      querySnapshot.forEach(async (doc) => {
+        try {
+          await doc.ref.update({
+            encryptedKey: encryptedKey,
+            encryptedData: encryptedData,
+          });
+          res.status(204).json();
+        } catch (error) {
+          console.error("Error updating pin: ", error);
+          res.status(404).json({ error: "User not found" });
+        }
+      });
+
+      res
+        .status(204)
+        .json({ encryptedData: encryptedData, encryptedKey: encryptedKey });
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
+  } catch (err) {
+    console.error("Error updating pin: ", err);
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+});
+
 // POST decrypt
 router.post("/decrypt", async function (req, res, next) {
   try {
